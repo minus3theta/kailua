@@ -1,6 +1,6 @@
 use std::{fs::File, io::Read};
 
-use anyhow::{bail, Ok};
+use anyhow::{bail, Context, Ok};
 
 use crate::{
     bytecode::ByteCode,
@@ -29,7 +29,13 @@ impl<'a> ParseProtoBuilder<'a> {
     fn load(mut self) -> anyhow::Result<ParseProto> {
         loop {
             match self.lex.next()? {
-                Token::Name(name) => self.function_call(name)?,
+                Token::Name(name) => {
+                    if self.lex.peek()? == &Token::Assign {
+                        self.assignment(name)?;
+                    } else {
+                        self.function_call(name)?;
+                    }
+                }
                 Token::Local => self.local()?,
                 Token::Eos => break,
                 t => bail!("unexpected token: {t:?}"),
@@ -48,7 +54,7 @@ impl<'a> ParseProtoBuilder<'a> {
         })
     }
 
-    fn local(&mut self) -> Result<(), anyhow::Error> {
+    fn local(&mut self) -> anyhow::Result<()> {
         let var = if let Token::Name(var) = self.lex.next()? {
             var
         } else {
@@ -62,7 +68,7 @@ impl<'a> ParseProtoBuilder<'a> {
         Ok(())
     }
 
-    fn function_call(&mut self, name: String) -> Result<(), anyhow::Error> {
+    fn function_call(&mut self, name: String) -> anyhow::Result<()> {
         let code = self.load_var(self.locals.len(), name);
         self.byte_codes.push(code);
         match self.lex.next()? {
@@ -81,6 +87,48 @@ impl<'a> ParseProtoBuilder<'a> {
         }
         self.byte_codes
             .push(ByteCode::Call(self.locals.len() as u8, 1));
+        Ok(())
+    }
+
+    fn assignment(&mut self, var: String) -> anyhow::Result<()> {
+        self.lex.next()?;
+
+        if let Some(i) = self.get_local(&var) {
+            // local variable
+            self.load_exp(i)?;
+        } else {
+            // global variable
+            let dst = self.add_const(Value::String(var)) as u8;
+            let code = match self.lex.next()? {
+                Token::Nil => ByteCode::SetGlobalConst(dst, self.add_const(Value::Nil) as u8),
+                Token::True => {
+                    ByteCode::SetGlobalConst(dst, self.add_const(Value::Boolean(true)) as u8)
+                }
+                Token::False => {
+                    ByteCode::SetGlobalConst(dst, self.add_const(Value::Boolean(false)) as u8)
+                }
+                Token::Integer(i) => {
+                    ByteCode::SetGlobalConst(dst, self.add_const(Value::Integer(i)) as u8)
+                }
+                Token::Float(f) => {
+                    ByteCode::SetGlobalConst(dst, self.add_const(Value::Float(f)) as u8)
+                }
+                Token::String(s) => {
+                    ByteCode::SetGlobalConst(dst, self.add_const(Value::String(s)) as u8)
+                }
+                // from variable
+                Token::Name(var) => {
+                    if let Some(i) = self.get_local(&var) {
+                        // local variable
+                        ByteCode::SetGlobal(dst, i as u8)
+                    } else {
+                        ByteCode::SetGlobalGlobal(dst, self.add_const(Value::String(var)) as u8)
+                    }
+                }
+                _ => bail!("invalid argument"),
+            };
+            self.byte_codes.push(code);
+        }
         Ok(())
     }
 
@@ -120,12 +168,16 @@ impl<'a> ParseProtoBuilder<'a> {
     }
 
     fn load_var(&mut self, dst: usize, name: String) -> ByteCode {
-        if let Some(i) = self.locals.iter().rposition(|v| v == &name) {
+        if let Some(i) = self.get_local(&name) {
             ByteCode::Move(dst as u8, i as u8)
         } else {
             let ic = self.add_const(Value::String(name));
             ByteCode::GetGlobal(dst as u8, ic as u8)
         }
+    }
+
+    fn get_local(&mut self, name: &String) -> Option<usize> {
+        self.locals.iter().rposition(|v| v == name)
     }
 }
 
@@ -142,5 +194,17 @@ impl ParseProto {
         let builder = ParseProtoBuilder::new(&buf);
 
         builder.load()
+    }
+
+    pub fn get_global(&self, index: usize) -> anyhow::Result<&String> {
+        if let Value::String(var) = self
+            .constants
+            .get(index)
+            .context("constant index out of bounds")?
+        {
+            Ok(var)
+        } else {
+            bail!("constant is not a variable")
+        }
     }
 }

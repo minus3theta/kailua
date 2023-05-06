@@ -52,6 +52,24 @@ impl ExeState {
                 ByteCode::LoadBool(dst, c) => self.set_stack(dst, Value::Boolean(c)),
                 ByteCode::LoadInt(dst, c) => self.set_stack(dst, Value::Integer(c as i64)),
                 ByteCode::Move(dst, src) => self.set_stack(dst, self.stack[src as usize].clone()),
+                ByteCode::SetGlobalConst(dst, src) => {
+                    let var = proto.get_global(dst as usize)?;
+                    self.globals
+                        .insert(var.clone(), proto.constants[src as usize].clone());
+                }
+                ByteCode::SetGlobal(dst, src) => {
+                    let var = proto.get_global(dst as usize)?;
+                    self.globals
+                        .insert(var.clone(), self.stack[src as usize].clone());
+                }
+                ByteCode::SetGlobalGlobal(dst, src) => {
+                    let dst = proto.get_global(dst as usize)?;
+                    let src = proto.get_global(src as usize)?;
+                    self.globals.insert(
+                        dst.clone(),
+                        self.globals.get(src).unwrap_or(&Value::Nil).clone(),
+                    );
+                }
             }
         }
         Ok(())

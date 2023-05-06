@@ -83,14 +83,33 @@ pub enum Token {
 #[derive(Debug)]
 pub struct Lex<'a> {
     input: &'a str,
+    ahead: Token,
 }
 
 impl<'a> Lex<'a> {
     pub fn new(input: &'a str) -> Self {
-        Self { input }
+        Self {
+            input,
+            ahead: Token::Eos,
+        }
     }
 
     pub fn next(&mut self) -> anyhow::Result<Token> {
+        if self.ahead == Token::Eos {
+            self.do_next()
+        } else {
+            Ok(std::mem::replace(&mut self.ahead, Token::Eos))
+        }
+    }
+
+    pub fn peek(&mut self) -> anyhow::Result<&Token> {
+        if self.ahead == Token::Eos {
+            self.ahead = self.do_next()?;
+        }
+        Ok(&self.ahead)
+    }
+
+    fn do_next(&mut self) -> anyhow::Result<Token> {
         let (t, rest) = lua_token().parse(self.input)?;
         self.input = rest;
         Ok(t)
@@ -101,7 +120,7 @@ fn lua_token<Input>() -> impl Parser<Input, Output = Token>
 where
     Input: Stream<Token = char>,
 {
-    let name = many1(letter()).map(Token::Name);
+    let name = recognize((letter(), many::<String, _, _>(letter().or(digit())))).map(Token::Name);
     let string = between(token('"'), token('"'), many(satisfy(|c| c != '"'))).map(Token::String);
     let eos = eof().map(|_| Token::Eos);
     spaces().with(choice((

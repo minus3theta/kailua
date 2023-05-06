@@ -45,6 +45,9 @@ impl ExeState {
                         bail!("invalid function: {func:?}");
                     }
                 }
+                ByteCode::LoadNil(dst) => self.set_stack(dst, Value::Nil),
+                ByteCode::LoadBool(dst, c) => self.set_stack(dst, Value::Boolean(c)),
+                ByteCode::LoadInt(dst, c) => self.set_stack(dst, Value::Integer(c as i64)),
             }
         }
         Ok(())

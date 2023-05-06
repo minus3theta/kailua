@@ -75,8 +75,10 @@ pub fn load(mut input: File) -> anyhow::Result<ParseProto> {
 }
 
 fn add_const(constants: &mut Vec<Value>, c: Value) -> usize {
-    constants.push(c);
-    constants.len() - 1
+    constants.iter().position(|v| v == &c).unwrap_or_else(|| {
+        constants.push(c);
+        constants.len() - 1
+    })
 }
 
 fn load_const(constants: &mut Vec<Value>, dst: usize, c: Value) -> ByteCode {

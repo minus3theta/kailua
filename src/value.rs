@@ -22,3 +22,17 @@ impl std::fmt::Debug for Value {
         }
     }
 }
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Nil, Self::Nil) => true,
+            (Self::Boolean(l), Self::Boolean(r)) => l == r,
+            (Self::Integer(l), Self::Integer(r)) => l == r,
+            (Self::Float(l), Self::Float(r)) => l == r,
+            (Self::String(l), Self::String(r)) => l == r,
+            (Self::Function(l), Self::Function(r)) => std::ptr::eq(l, r),
+            _ => false,
+        }
+    }
+}

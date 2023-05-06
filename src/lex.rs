@@ -1,6 +1,9 @@
 use combine::{
-    attempt, between, choice, eof, many, many1,
-    parser::char::{letter, spaces, string},
+    attempt, between, choice, eof, from_str, many, many1,
+    parser::{
+        char::{digit, letter, spaces, string},
+        combinator::recognize,
+    },
     satisfy, token, Parser, Stream,
 };
 
@@ -66,6 +69,8 @@ pub enum Token {
     Dots,
 
     // constant values
+    Integer(i64),
+    Float(f64),
     String(String),
 
     // name of variables or table keys
@@ -99,7 +104,15 @@ where
     let name = many1(letter()).map(Token::Name);
     let string = between(token('"'), token('"'), many(satisfy(|c| c != '"'))).map(Token::String);
     let eos = eof().map(|_| Token::Eos);
-    spaces().with(choice((keywords(), operators(), name, string, eos)))
+    spaces().with(choice((
+        keywords(),
+        operators(),
+        attempt(float()),
+        integer(),
+        name,
+        string,
+        eos,
+    )))
 }
 
 fn keywords<Input>() -> impl Parser<Input, Output = Token>
@@ -177,6 +190,25 @@ where
     ))
 }
 
+fn integer<Input>() -> impl Parser<Input, Output = Token>
+where
+    Input: Stream<Token = char>,
+{
+    from_str(many1::<String, _, _>(digit())).map(Token::Integer)
+}
+
+fn float<Input>() -> impl Parser<Input, Output = Token>
+where
+    Input: Stream<Token = char>,
+{
+    from_str(recognize::<String, _, _>((
+        many1::<String, _, _>(digit()),
+        token('.'),
+        many1::<String, _, _>(digit()),
+    )))
+    .map(Token::Float)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +231,20 @@ mod tests {
     fn parse_dots() {
         let (tok, rest) = lua_token().parse("...").unwrap();
         assert_eq!(tok, Token::Dots);
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn parse_integer() {
+        let (tok, rest) = lua_token().parse("123").unwrap();
+        assert_eq!(tok, Token::Integer(123));
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn parse_float() {
+        let (tok, rest) = lua_token().parse("123.45").unwrap();
+        assert_eq!(tok, Token::Float(123.45));
         assert!(rest.is_empty());
     }
 }

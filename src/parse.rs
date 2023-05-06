@@ -29,42 +29,8 @@ impl<'a> ParseProtoBuilder<'a> {
     fn load(mut self) -> anyhow::Result<ParseProto> {
         loop {
             match self.lex.next()? {
-                Token::Name(name) => {
-                    let code = self.load_var(self.locals.len(), name);
-                    self.byte_codes.push(code);
-
-                    match self.lex.next()? {
-                        Token::ParL => {
-                            self.load_exp(self.locals.len() + 1)?;
-
-                            if self.lex.next()? != Token::ParR {
-                                bail!("expected `)`");
-                            }
-                        }
-                        Token::String(s) => {
-                            let code = self.load_const(self.locals.len() + 1, Value::String(s));
-                            self.byte_codes.push(code);
-                        }
-                        _ => bail!("expected string"),
-                    }
-                    self.byte_codes
-                        .push(ByteCode::Call(self.locals.len() as u8, 1));
-                }
-                Token::Local => {
-                    let var = if let Token::Name(var) = self.lex.next()? {
-                        var
-                    } else {
-                        bail!("expected variable");
-                    };
-
-                    if self.lex.next()? != Token::Assign {
-                        bail!("expected `=`");
-                    }
-
-                    self.load_exp(self.locals.len())?;
-
-                    self.locals.push(var);
-                }
+                Token::Name(name) => self.function_call(name)?,
+                Token::Local => self.local()?,
                 Token::Eos => break,
                 t => bail!("unexpected token: {t:?}"),
             }
@@ -80,6 +46,42 @@ impl<'a> ParseProtoBuilder<'a> {
             constants: self.constants,
             byte_codes: self.byte_codes,
         })
+    }
+
+    fn local(&mut self) -> Result<(), anyhow::Error> {
+        let var = if let Token::Name(var) = self.lex.next()? {
+            var
+        } else {
+            bail!("expected variable");
+        };
+        if self.lex.next()? != Token::Assign {
+            bail!("expected `=`");
+        }
+        self.load_exp(self.locals.len())?;
+        self.locals.push(var);
+        Ok(())
+    }
+
+    fn function_call(&mut self, name: String) -> Result<(), anyhow::Error> {
+        let code = self.load_var(self.locals.len(), name);
+        self.byte_codes.push(code);
+        match self.lex.next()? {
+            Token::ParL => {
+                self.load_exp(self.locals.len() + 1)?;
+
+                if self.lex.next()? != Token::ParR {
+                    bail!("expected `)`");
+                }
+            }
+            Token::String(s) => {
+                let code = self.load_const(self.locals.len() + 1, Value::String(s));
+                self.byte_codes.push(code);
+            }
+            _ => bail!("expected string"),
+        }
+        self.byte_codes
+            .push(ByteCode::Call(self.locals.len() as u8, 1));
+        Ok(())
     }
 
     fn add_const(&mut self, c: Value) -> usize {

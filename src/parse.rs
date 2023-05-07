@@ -1,23 +1,23 @@
-use std::{fs::File, io::Read};
+use std::io::Read;
 
 use anyhow::{bail, Context, Ok};
+use combine::stream::{buffered, position, read};
 
 use crate::{
     bytecode::ByteCode,
-    lex::{Lex, Token},
+    lex::{ByteStream, Lex, Token},
     value::Value,
 };
 
-#[derive(Debug)]
-struct ParseProtoBuilder<'a> {
+struct ParseProtoBuilder<S> {
     constants: Vec<Value>,
     byte_codes: Vec<ByteCode>,
     locals: Vec<String>,
-    lex: Lex<'a>,
+    lex: Lex<S>,
 }
 
-impl<'a> ParseProtoBuilder<'a> {
-    fn new(input: &'a str) -> Self {
+impl<'a, S: ByteStream<'a>> ParseProtoBuilder<S> {
+    fn new(input: S) -> Self {
         Self {
             constants: Default::default(),
             byte_codes: Default::default(),
@@ -186,10 +186,9 @@ pub struct ParseProto {
 }
 
 impl ParseProto {
-    pub fn load(mut input: File) -> anyhow::Result<Self> {
-        let mut buf = String::new();
-        input.read_to_string(&mut buf)?;
-        let builder = ParseProtoBuilder::new(&buf);
+    pub fn load(input: impl Read + 'static) -> anyhow::Result<Self> {
+        let input = buffered::Stream::new(position::Stream::new(read::Stream::new(input)), 10);
+        let builder = ParseProtoBuilder::new(input);
 
         builder.load()
     }

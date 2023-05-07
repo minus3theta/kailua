@@ -1,11 +1,14 @@
 use combine::{
     attempt, between, choice, eof, from_str, many, many1,
     parser::{
-        char::{digit, letter, spaces, string},
+        byte::{bytes, digit, letter, spaces},
         combinator::recognize,
     },
     satisfy, token, Parser, Stream,
 };
+
+pub trait ByteStream<'a>: Stream<Token = u8, Range = &'a [u8]> + 'a {}
+impl<'a, T: Stream<Token = u8, Range = &'a [u8]> + 'a> ByteStream<'a> for T {}
 
 #[derive(Debug, PartialEq)]
 pub enum Token {
@@ -80,16 +83,15 @@ pub enum Token {
     Eos,
 }
 
-#[derive(Debug)]
-pub struct Lex<'a> {
-    input: &'a str,
+pub struct Lex<S> {
+    input: Option<S>,
     ahead: Token,
 }
 
-impl<'a> Lex<'a> {
-    pub fn new(input: &'a str) -> Self {
+impl<'a, S: ByteStream<'a>> Lex<S> {
+    pub fn new(input: S) -> Self {
         Self {
-            input,
+            input: Some(input),
             ahead: Token::Eos,
         }
     }
@@ -110,18 +112,23 @@ impl<'a> Lex<'a> {
     }
 
     fn do_next(&mut self) -> anyhow::Result<Token> {
-        let (t, rest) = lua_token().parse(self.input)?;
-        self.input = rest;
+        let input = self.input.take();
+        let (t, rest) = lua_token()
+            .parse(input.unwrap())
+            .map_err(|_| anyhow::anyhow!("parse failed"))?;
+        self.input = Some(rest);
         Ok(t)
     }
 }
 
-fn lua_token<Input>() -> impl Parser<Input, Output = Token>
+fn lua_token<'a, Input>() -> impl Parser<Input, Output = Token> + 'a
 where
-    Input: Stream<Token = char>,
+    Input: ByteStream<'a>,
 {
-    let name = recognize((letter(), many::<String, _, _>(letter().or(digit())))).map(Token::Name);
-    let string = between(token('"'), token('"'), many(satisfy(|c| c != '"'))).map(Token::String);
+    let name = recognize((letter(), many::<Vec<_>, _, _>(letter().or(digit()))))
+        .map(|v: Vec<u8>| Token::Name(String::from_utf8_lossy(&v).to_string()));
+    let string = between(token(b'"'), token(b'"'), many(satisfy(|c| c != b'"')))
+        .map(|v: Vec<u8>| Token::String(String::from_utf8_lossy(&v).to_string()));
     let eos = eof().map(|_| Token::Eos);
     spaces().with(choice((
         keywords(),
@@ -134,96 +141,96 @@ where
     )))
 }
 
-fn keywords<Input>() -> impl Parser<Input, Output = Token>
+fn keywords<'a, Input>() -> impl Parser<Input, Output = Token> + 'a
 where
-    Input: Stream<Token = char>,
+    Input: ByteStream<'a>,
 {
     choice((
-        attempt(string("and")).map(|_| Token::And),
-        attempt(string("break")).map(|_| Token::Break),
-        attempt(string("do")).map(|_| Token::Do),
-        attempt(string("elseif")).map(|_| Token::Elseif),
-        attempt(string("else")).map(|_| Token::Else),
-        attempt(string("end")).map(|_| Token::End),
-        attempt(string("false")).map(|_| Token::False),
-        attempt(string("for")).map(|_| Token::For),
-        attempt(string("function")).map(|_| Token::Function),
-        attempt(string("goto")).map(|_| Token::Goto),
-        attempt(string("if")).map(|_| Token::If),
-        attempt(string("in")).map(|_| Token::In),
-        attempt(string("local")).map(|_| Token::Local),
-        attempt(string("nil")).map(|_| Token::Nil),
-        attempt(string("not")).map(|_| Token::Not),
-        attempt(string("or")).map(|_| Token::Or),
-        attempt(string("repeat")).map(|_| Token::Repeat),
-        attempt(string("return")).map(|_| Token::Return),
-        attempt(string("then")).map(|_| Token::Then),
-        attempt(string("true")).map(|_| Token::True),
-        attempt(string("until")).map(|_| Token::Until),
-        attempt(string("while")).map(|_| Token::While),
+        attempt(bytes(&b"and"[..])).map(|_| Token::And),
+        attempt(bytes(&b"break"[..])).map(|_| Token::Break),
+        attempt(bytes(&b"do"[..])).map(|_| Token::Do),
+        attempt(bytes(&b"elseif"[..])).map(|_| Token::Elseif),
+        attempt(bytes(&b"else"[..])).map(|_| Token::Else),
+        attempt(bytes(&b"end"[..])).map(|_| Token::End),
+        attempt(bytes(&b"false"[..])).map(|_| Token::False),
+        attempt(bytes(&b"for"[..])).map(|_| Token::For),
+        attempt(bytes(&b"function"[..])).map(|_| Token::Function),
+        attempt(bytes(&b"goto"[..])).map(|_| Token::Goto),
+        attempt(bytes(&b"if"[..])).map(|_| Token::If),
+        attempt(bytes(&b"in"[..])).map(|_| Token::In),
+        attempt(bytes(&b"local"[..])).map(|_| Token::Local),
+        attempt(bytes(&b"nil"[..])).map(|_| Token::Nil),
+        attempt(bytes(&b"not"[..])).map(|_| Token::Not),
+        attempt(bytes(&b"or"[..])).map(|_| Token::Or),
+        attempt(bytes(&b"repeat"[..])).map(|_| Token::Repeat),
+        attempt(bytes(&b"return"[..])).map(|_| Token::Return),
+        attempt(bytes(&b"then"[..])).map(|_| Token::Then),
+        attempt(bytes(&b"true"[..])).map(|_| Token::True),
+        attempt(bytes(&b"until"[..])).map(|_| Token::Until),
+        attempt(bytes(&b"while"[..])).map(|_| Token::While),
     ))
 }
 
-fn operators<Input>() -> impl Parser<Input, Output = Token>
+fn operators<'a, Input>() -> impl Parser<Input, Output = Token> + 'a
 where
-    Input: Stream<Token = char>,
+    Input: ByteStream<'a>,
 {
     choice((
-        attempt(string("...")).map(|_| Token::Dots),
+        attempt(bytes(&b"..."[..])).map(|_| Token::Dots),
         choice((
-            attempt(string("<<")).map(|_| Token::ShiftL),
-            attempt(string(">>")).map(|_| Token::ShiftR),
-            attempt(string("//")).map(|_| Token::Idiv),
-            attempt(string("==")).map(|_| Token::Equal),
-            attempt(string("~=")).map(|_| Token::NotEq),
-            attempt(string("<=")).map(|_| Token::LesEq),
-            attempt(string(">=")).map(|_| Token::GreEq),
-            attempt(string("::")).map(|_| Token::DoubColon),
-            attempt(string("..")).map(|_| Token::Concat),
+            attempt(bytes(&b"<<"[..])).map(|_| Token::ShiftL),
+            attempt(bytes(&b">>"[..])).map(|_| Token::ShiftR),
+            attempt(bytes(&b"//"[..])).map(|_| Token::Idiv),
+            attempt(bytes(&b"=="[..])).map(|_| Token::Equal),
+            attempt(bytes(&b"~="[..])).map(|_| Token::NotEq),
+            attempt(bytes(&b"<="[..])).map(|_| Token::LesEq),
+            attempt(bytes(&b">="[..])).map(|_| Token::GreEq),
+            attempt(bytes(&b"::"[..])).map(|_| Token::DoubColon),
+            attempt(bytes(&b".."[..])).map(|_| Token::Concat),
         )),
         choice((
-            attempt(string("+")).map(|_| Token::Add),
-            attempt(string("-")).map(|_| Token::Sub),
-            attempt(string("*")).map(|_| Token::Mul),
-            attempt(string("/")).map(|_| Token::Div),
-            attempt(string("%")).map(|_| Token::Mod),
-            attempt(string("^")).map(|_| Token::Pow),
-            attempt(string("#")).map(|_| Token::Len),
-            attempt(string("&")).map(|_| Token::BitAnd),
-            attempt(string("~")).map(|_| Token::BitXor),
-            attempt(string("|")).map(|_| Token::BitOr),
-            attempt(string("<")).map(|_| Token::Less),
-            attempt(string(">")).map(|_| Token::Greater),
-            attempt(string("=")).map(|_| Token::Assign),
-            attempt(string("(")).map(|_| Token::ParL),
-            attempt(string(")")).map(|_| Token::ParR),
-            attempt(string("{")).map(|_| Token::CurlyL),
-            attempt(string("}")).map(|_| Token::CurlyR),
-            attempt(string("[")).map(|_| Token::SqurL),
-            attempt(string("]")).map(|_| Token::SqurR),
-            attempt(string(";")).map(|_| Token::SemiColon),
-            attempt(string(":")).map(|_| Token::Colon),
-            attempt(string(",")).map(|_| Token::Comma),
-            attempt(string(".")).map(|_| Token::Dot),
+            token(b'+').map(|_| Token::Add),
+            token(b'-').map(|_| Token::Sub),
+            token(b'*').map(|_| Token::Mul),
+            token(b'/').map(|_| Token::Div),
+            token(b'%').map(|_| Token::Mod),
+            token(b'^').map(|_| Token::Pow),
+            token(b'#').map(|_| Token::Len),
+            token(b'&').map(|_| Token::BitAnd),
+            token(b'~').map(|_| Token::BitXor),
+            token(b'|').map(|_| Token::BitOr),
+            token(b'<').map(|_| Token::Less),
+            token(b'>').map(|_| Token::Greater),
+            token(b'=').map(|_| Token::Assign),
+            token(b'(').map(|_| Token::ParL),
+            token(b')').map(|_| Token::ParR),
+            token(b'{').map(|_| Token::CurlyL),
+            token(b'}').map(|_| Token::CurlyR),
+            token(b'[').map(|_| Token::SqurL),
+            token(b']').map(|_| Token::SqurR),
+            token(b';').map(|_| Token::SemiColon),
+            token(b':').map(|_| Token::Colon),
+            token(b',').map(|_| Token::Comma),
+            token(b'.').map(|_| Token::Dot),
         )),
     ))
 }
 
 fn integer<Input>() -> impl Parser<Input, Output = Token>
 where
-    Input: Stream<Token = char>,
+    Input: Stream<Token = u8>,
 {
-    from_str(many1::<String, _, _>(digit())).map(Token::Integer)
+    from_str(many1::<Vec<_>, _, _>(digit())).map(Token::Integer)
 }
 
 fn float<Input>() -> impl Parser<Input, Output = Token>
 where
-    Input: Stream<Token = char>,
+    Input: Stream<Token = u8>,
 {
-    from_str(recognize::<String, _, _>((
-        many1::<String, _, _>(digit()),
-        token('.'),
-        many1::<String, _, _>(digit()),
+    from_str(recognize::<Vec<_>, _, _>((
+        many1::<Vec<_>, _, _>(digit()),
+        token(b'.'),
+        many1::<Vec<_>, _, _>(digit()),
     )))
     .map(Token::Float)
 }
@@ -234,36 +241,45 @@ mod tests {
 
     #[test]
     fn parse_elseif() {
-        let (tok, rest) = lua_token().parse("elseif").unwrap();
+        let (tok, rest) = lua_token().parse(&b"elseif"[..]).unwrap();
         assert_eq!(tok, Token::Elseif);
         assert!(rest.is_empty());
     }
 
     #[test]
     fn parse_idiv() {
-        let (tok, rest) = lua_token().parse("//").unwrap();
+        let (tok, rest) = lua_token().parse(&b"//"[..]).unwrap();
         assert_eq!(tok, Token::Idiv);
         assert!(rest.is_empty());
     }
 
     #[test]
     fn parse_dots() {
-        let (tok, rest) = lua_token().parse("...").unwrap();
+        let (tok, rest) = lua_token().parse(&b"..."[..]).unwrap();
         assert_eq!(tok, Token::Dots);
         assert!(rest.is_empty());
     }
 
     #[test]
     fn parse_integer() {
-        let (tok, rest) = lua_token().parse("123").unwrap();
+        let (tok, rest) = lua_token().parse(&b"123"[..]).unwrap();
         assert_eq!(tok, Token::Integer(123));
         assert!(rest.is_empty());
     }
 
     #[test]
     fn parse_float() {
-        let (tok, rest) = lua_token().parse("123.45").unwrap();
+        let (tok, rest) = lua_token().parse(&b"123.45"[..]).unwrap();
         assert_eq!(tok, Token::Float(123.45));
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn parse_sentence() {
+        let (t1, rest) = lua_token().parse(&br#"print "hello, world!""#[..]).unwrap();
+        let (t2, rest) = lua_token().parse(rest).unwrap();
+        assert_eq!(t1, Token::Name("print".into()));
+        assert_eq!(t2, Token::String("hello, world!".into()));
         assert!(rest.is_empty());
     }
 }

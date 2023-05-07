@@ -85,6 +85,6 @@ impl Default for ExeState {
 }
 
 fn lib_print(state: &mut ExeState) -> i32 {
-    println!("{:?}", state.stack[state.func_index + 1]);
+    println!("{}", state.stack[state.func_index + 1]);
     0
 }

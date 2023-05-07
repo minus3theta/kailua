@@ -28,12 +28,9 @@ impl ExeState {
             match *code {
                 ByteCode::GetGlobal(dst, name) => {
                     let name = &proto.constants[name as usize];
-                    if let Value::String(key) = name {
-                        let v = self.globals.get(key).unwrap_or(&Value::Nil).clone();
-                        self.set_stack(dst, v);
-                    } else {
-                        bail!("invalid global key: {name:?}");
-                    }
+                    let key = <&str>::try_from(name)?;
+                    let v = self.globals.get(key).unwrap_or(&Value::Nil).clone();
+                    self.set_stack(dst, v);
                 }
                 ByteCode::LoadConst(dst, c) => {
                     let v = proto.constants[c as usize].clone();
@@ -53,22 +50,19 @@ impl ExeState {
                 ByteCode::LoadInt(dst, c) => self.set_stack(dst, Value::Integer(c as i64)),
                 ByteCode::Move(dst, src) => self.set_stack(dst, self.stack[src as usize].clone()),
                 ByteCode::SetGlobalConst(dst, src) => {
-                    let var = proto.get_global(dst as usize)?;
+                    let var = proto.get_global(dst as usize)?.to_owned();
                     self.globals
-                        .insert(var.clone(), proto.constants[src as usize].clone());
+                        .insert(var, proto.constants[src as usize].clone());
                 }
                 ByteCode::SetGlobal(dst, src) => {
-                    let var = proto.get_global(dst as usize)?;
-                    self.globals
-                        .insert(var.clone(), self.stack[src as usize].clone());
+                    let var = proto.get_global(dst as usize)?.to_owned();
+                    self.globals.insert(var, self.stack[src as usize].clone());
                 }
                 ByteCode::SetGlobalGlobal(dst, src) => {
-                    let dst = proto.get_global(dst as usize)?;
+                    let dst = proto.get_global(dst as usize)?.to_owned();
                     let src = proto.get_global(src as usize)?;
-                    self.globals.insert(
-                        dst.clone(),
-                        self.globals.get(src).unwrap_or(&Value::Nil).clone(),
-                    );
+                    self.globals
+                        .insert(dst, self.globals.get(src).unwrap_or(&Value::Nil).clone());
                 }
             }
         }
@@ -81,6 +75,12 @@ impl ExeState {
             self.stack.resize(dst + 1, Value::Nil);
         }
         self.stack[dst] = v;
+    }
+}
+
+impl Default for ExeState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

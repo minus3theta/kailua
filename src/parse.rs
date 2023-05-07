@@ -80,7 +80,7 @@ impl<'a> ParseProtoBuilder<'a> {
                 }
             }
             Token::String(s) => {
-                let code = self.load_const(self.locals.len() + 1, Value::String(s));
+                let code = self.load_const(self.locals.len() + 1, s.into());
                 self.byte_codes.push(code);
             }
             _ => bail!("expected string"),
@@ -98,7 +98,7 @@ impl<'a> ParseProtoBuilder<'a> {
             self.load_exp(i)?;
         } else {
             // global variable
-            let dst = self.add_const(Value::String(var)) as u8;
+            let dst = self.add_const(var.into()) as u8;
             let code = match self.lex.next()? {
                 Token::Nil => ByteCode::SetGlobalConst(dst, self.add_const(Value::Nil) as u8),
                 Token::True => {
@@ -113,16 +113,14 @@ impl<'a> ParseProtoBuilder<'a> {
                 Token::Float(f) => {
                     ByteCode::SetGlobalConst(dst, self.add_const(Value::Float(f)) as u8)
                 }
-                Token::String(s) => {
-                    ByteCode::SetGlobalConst(dst, self.add_const(Value::String(s)) as u8)
-                }
+                Token::String(s) => ByteCode::SetGlobalConst(dst, self.add_const(s.into()) as u8),
                 // from variable
                 Token::Name(var) => {
                     if let Some(i) = self.get_local(&var) {
                         // local variable
                         ByteCode::SetGlobal(dst, i as u8)
                     } else {
-                        ByteCode::SetGlobalGlobal(dst, self.add_const(Value::String(var)) as u8)
+                        ByteCode::SetGlobalGlobal(dst, self.add_const(var.into()) as u8)
                     }
                 }
                 _ => bail!("invalid argument"),
@@ -159,7 +157,7 @@ impl<'a> ParseProtoBuilder<'a> {
                 }
             }
             Token::Float(f) => self.load_const(dst, Value::Float(f)),
-            Token::String(s) => self.load_const(dst, Value::String(s)),
+            Token::String(s) => self.load_const(dst, s.into()),
             Token::Name(var) => self.load_var(dst, var),
             _ => bail!("invalid argument"),
         };
@@ -171,7 +169,7 @@ impl<'a> ParseProtoBuilder<'a> {
         if let Some(i) = self.get_local(&name) {
             ByteCode::Move(dst as u8, i as u8)
         } else {
-            let ic = self.add_const(Value::String(name));
+            let ic = self.add_const(name.into());
             ByteCode::GetGlobal(dst as u8, ic as u8)
         }
     }
@@ -196,15 +194,10 @@ impl ParseProto {
         builder.load()
     }
 
-    pub fn get_global(&self, index: usize) -> anyhow::Result<&String> {
-        if let Value::String(var) = self
-            .constants
+    pub fn get_global(&self, index: usize) -> anyhow::Result<&str> {
+        self.constants
             .get(index)
             .context("constant index out of bounds")?
-        {
-            Ok(var)
-        } else {
-            bail!("constant is not a variable")
-        }
+            .try_into()
     }
 }

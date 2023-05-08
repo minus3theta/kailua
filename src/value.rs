@@ -26,19 +26,54 @@ pub enum Value {
     Function(fn(&mut ExeState) -> i32),
 }
 
+fn vec_to_short_mid_str(v: &[u8]) -> Option<Value> {
+    let len = v.len();
+    if len <= SHORT_STR_MAX {
+        let mut buf = [0; SHORT_STR_MAX];
+        buf[..len].copy_from_slice(v);
+        Some(Value::ShortStr(len as u8, buf))
+    } else if len <= MID_STR_MAX {
+        let mut buf = [0; MID_STR_MAX];
+        buf[..len].copy_from_slice(v);
+        Some(Value::MidStr(Rc::new((len as u8, buf))))
+    } else {
+        None
+    }
+}
+
+impl From<&[u8]> for Value {
+    fn from(v: &[u8]) -> Self {
+        vec_to_short_mid_str(v).unwrap_or_else(|| Value::LongStr(Rc::new(v.to_vec())))
+    }
+}
+
+impl From<&str> for Value {
+    fn from(s: &str) -> Self {
+        s.as_bytes().into()
+    }
+}
+
+impl From<Vec<u8>> for Value {
+    fn from(v: Vec<u8>) -> Self {
+        vec_to_short_mid_str(&v).unwrap_or_else(|| Value::LongStr(Rc::new(v)))
+    }
+}
+
 impl From<String> for Value {
     fn from(s: String) -> Self {
-        let len = s.len();
-        if len <= SHORT_STR_MAX {
-            let mut buf = [0; SHORT_STR_MAX];
-            buf[..len].copy_from_slice(s.as_bytes());
-            Self::ShortStr(len as u8, buf)
-        } else if len <= MID_STR_MAX {
-            let mut buf = [0; MID_STR_MAX];
-            buf[..len].copy_from_slice(s.as_bytes());
-            Self::MidStr(Rc::new((len as u8, buf)))
-        } else {
-            Value::LongStr(Rc::new(s.into_bytes()))
+        s.into_bytes().into()
+    }
+}
+
+impl<'a> TryFrom<&'a Value> for &'a [u8] {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::ShortStr(len, buf) => Ok(&buf[..*len as usize]),
+            Value::MidStr(s) => Ok(&s.1[..s.0 as usize]),
+            Value::LongStr(s) => Ok(s),
+            _ => bail!("not a string"),
         }
     }
 }
@@ -47,12 +82,7 @@ impl<'a> TryFrom<&'a Value> for &'a str {
     type Error = anyhow::Error;
 
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
-        Ok(match value {
-            Value::ShortStr(len, buf) => std::str::from_utf8(&buf[..*len as usize])?,
-            Value::MidStr(s) => std::str::from_utf8(&s.1[..s.0 as usize])?,
-            Value::LongStr(s) => std::str::from_utf8(s.as_ref())?,
-            _ => bail!("not a string"),
-        })
+        Ok(std::str::from_utf8(value.try_into()?)?)
     }
 }
 
@@ -60,12 +90,7 @@ impl TryFrom<&Value> for String {
     type Error = anyhow::Error;
 
     fn try_from(value: &Value) -> Result<Self, Self::Error> {
-        Ok(match value {
-            Value::ShortStr(len, buf) => String::from_utf8_lossy(&buf[..*len as usize]).to_string(),
-            Value::MidStr(s) => String::from_utf8_lossy(&s.1[..s.0 as usize]).to_string(),
-            Value::LongStr(s) => String::from_utf8_lossy(s.as_ref()).to_string(),
-            _ => bail!("not a string"),
-        })
+        Ok(String::from_utf8_lossy(value.try_into()?).to_string())
     }
 }
 

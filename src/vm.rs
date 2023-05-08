@@ -46,8 +46,8 @@ impl ExeState {
                     }
                 }
                 ByteCode::LoadNil(dst) => self.set_stack(dst, Value::Nil),
-                ByteCode::LoadBool(dst, c) => self.set_stack(dst, Value::Boolean(c)),
-                ByteCode::LoadInt(dst, c) => self.set_stack(dst, Value::Integer(c as i64)),
+                ByteCode::LoadBool(dst, c) => self.set_stack(dst, c.into()),
+                ByteCode::LoadInt(dst, c) => self.set_stack(dst, (c as i64).into()),
                 ByteCode::Move(dst, src) => self.set_stack(dst, self.stack[src as usize].clone()),
                 ByteCode::SetGlobalConst(dst, src) => {
                     let var = proto.get_global(dst as usize)?.to_owned();

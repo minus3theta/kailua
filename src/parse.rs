@@ -101,18 +101,10 @@ impl<'a, S: ByteStream<'a>> ParseProtoBuilder<S> {
             let dst = self.add_const(var.into()) as u8;
             let code = match self.lex.next()? {
                 Token::Nil => ByteCode::SetGlobalConst(dst, self.add_const(Value::Nil) as u8),
-                Token::True => {
-                    ByteCode::SetGlobalConst(dst, self.add_const(Value::Boolean(true)) as u8)
-                }
-                Token::False => {
-                    ByteCode::SetGlobalConst(dst, self.add_const(Value::Boolean(false)) as u8)
-                }
-                Token::Integer(i) => {
-                    ByteCode::SetGlobalConst(dst, self.add_const(Value::Integer(i)) as u8)
-                }
-                Token::Float(f) => {
-                    ByteCode::SetGlobalConst(dst, self.add_const(Value::Float(f)) as u8)
-                }
+                Token::True => ByteCode::SetGlobalConst(dst, self.add_const(true.into()) as u8),
+                Token::False => ByteCode::SetGlobalConst(dst, self.add_const(false.into()) as u8),
+                Token::Integer(i) => ByteCode::SetGlobalConst(dst, self.add_const(i.into()) as u8),
+                Token::Float(f) => ByteCode::SetGlobalConst(dst, self.add_const(f.into()) as u8),
                 Token::String(s) => ByteCode::SetGlobalConst(dst, self.add_const(s.into()) as u8),
                 // from variable
                 Token::Name(var) => {
@@ -153,10 +145,10 @@ impl<'a, S: ByteStream<'a>> ParseProtoBuilder<S> {
                 if let Result::Ok(ii) = i16::try_from(i) {
                     ByteCode::LoadInt(dst as u8, ii)
                 } else {
-                    self.load_const(dst, Value::Integer(i))
+                    self.load_const(dst, i.into())
                 }
             }
-            Token::Float(f) => self.load_const(dst, Value::Float(f)),
+            Token::Float(f) => self.load_const(dst, f.into()),
             Token::String(s) => self.load_const(dst, s.into()),
             Token::Name(var) => self.load_var(dst, var),
             _ => bail!("invalid argument"),
